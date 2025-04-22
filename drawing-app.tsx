@@ -35,11 +35,14 @@ export default function DrawingApp() {
   const [fileName, setFileName] = useState("drawing")
   const [strokeWidth, setStrokeWidth] = useState(2)
   const [tool, setTool] = useState("pen") // "pen", "eraser", "line", "rectangle", "circle", "triangle"
+  const [activePen, setActivePen] = useState(1) // 1 or 2 for the two pen options
   const [debugInfo, setDebugInfo] = useState({ x: 0, y: 0, tool: "pen", action: "none" })
   const [gcodeSettings, setGcodeSettings] = useState({
     feedRate: 1000,
-    penUpCommand: "M5",
-    penDownCommand: "M3",
+    pen1UpCommand: "M5",
+    pen1DownCommand: "M3",
+    pen2UpCommand: "M7",
+    pen2DownCommand: "M8",
     travelSpeed: 3000,
   })
 
@@ -166,12 +169,15 @@ export default function DrawingApp() {
         // Add to path data
         setPathData((prev) => [
           ...prev,
-          [
-            [points[0].x, points[0].y],
-            [points[1].x, points[1].y],
-            [points[2].x, points[2].y],
-            [points[0].x, points[0].y], // Close the path
-          ],
+          {
+            points: [
+              [points[0].x, points[0].y],
+              [points[1].x, points[1].y],
+              [points[2].x, points[2].y],
+              [points[0].x, points[0].y], // Close the path
+            ],
+            pen: activePen,
+          },
         ])
 
         // Reset triangle points
@@ -190,19 +196,17 @@ export default function DrawingApp() {
     setShapeStart(pos)
 
     if (tool === "pen" || tool === "eraser") {
-      // Start new path for freehand drawing
-      setPathData((prev) => [...prev, [[pos.x, pos.y]]])
+      // Start new path for freehand drawing with pen information
+      setPathData((prev) => [...prev, { points: [[pos.x, pos.y]], pen: activePen }])
 
       ctx.beginPath()
       ctx.moveTo(pos.x, pos.y)
 
       if (tool === "pen") {
         ctx.lineWidth = strokeWidth
-        ctx.lineCap = "round"
-        ctx.strokeStyle = "#000000"
+        ctx.strokeStyle = activePen === 1 ? "#000000" : "#0000FF" // Black for pen 1, Blue for pen 2
       } else if (tool === "eraser") {
         ctx.lineWidth = strokeWidth * 2
-        ctx.lineCap = "round"
         ctx.strokeStyle = "#FFFFFF"
       }
     } else {
@@ -279,7 +283,7 @@ export default function DrawingApp() {
       // Freehand drawing
       if (tool === "pen") {
         ctx.lineWidth = strokeWidth
-        ctx.strokeStyle = "#000000"
+        ctx.strokeStyle = activePen === 1 ? "#000000" : "#0000FF" // Black for pen 1, Blue for pen 2
       } else if (tool === "eraser") {
         ctx.lineWidth = strokeWidth * 2
         ctx.strokeStyle = "#FFFFFF"
@@ -292,11 +296,12 @@ export default function DrawingApp() {
       ctx.moveTo(pos.x, pos.y)
 
       setPathData((prev) => {
-        const newData = [...prev]
-        if (newData.length > 0) {
-          newData[newData.length - 1].push([pos.x, pos.y])
+        const newPaths = [...prev]
+        const currentPath = newPaths[newPaths.length - 1]
+        if (currentPath && currentPath.points) {
+          currentPath.points.push([pos.x, pos.y])
         }
-        return newData
+        return newPaths
       })
 
       if (wsConnection && tool === "pen") {
@@ -368,10 +373,13 @@ export default function DrawingApp() {
         // Add line to path data
         setPathData((prev) => [
           ...prev,
-          [
-            [shapeStart.x, shapeStart.y],
-            [pos.x, pos.y],
-          ],
+          {
+            points: [
+              [shapeStart.x, shapeStart.y],
+              [pos.x, pos.y],
+            ],
+            pen: activePen,
+          },
         ])
 
         // Draw final line
@@ -388,13 +396,16 @@ export default function DrawingApp() {
         // Add rectangle to path data
         setPathData((prev) => [
           ...prev,
-          [
-            [shapeStart.x, shapeStart.y],
-            [shapeStart.x + width, shapeStart.y],
-            [shapeStart.x + width, shapeStart.y + height],
-            [shapeStart.x, shapeStart.y + height],
-            [shapeStart.x, shapeStart.y], // Close the path
-          ],
+          {
+            points: [
+              [shapeStart.x, shapeStart.y],
+              [shapeStart.x + width, shapeStart.y],
+              [shapeStart.x + width, shapeStart.y + height],
+              [shapeStart.x, shapeStart.y + height],
+              [shapeStart.x, shapeStart.y], // Close the path
+            ],
+            pen: activePen,
+          },
         ])
 
         // Draw final rectangle
@@ -414,7 +425,13 @@ export default function DrawingApp() {
           const y = shapeStart.y + radius * Math.sin(angle)
           circlePoints.push([x, y])
         }
-        setPathData((prev) => [...prev, circlePoints])
+        setPathData((prev) => [
+          ...prev,
+          {
+            points: circlePoints,
+            pen: activePen,
+          },
+        ])
 
         // Draw final circle
         ctx.beginPath()
@@ -508,25 +525,32 @@ G92 X0 Y0 ; Set current position as origin
 `
 
       // Process each path
-      pathData.forEach((stroke, index) => {
-        if (stroke.length > 0) {
-          gcode += `; Path ${index + 1}\n`
+      pathData.forEach((path) => {
+        if (path.points && path.points.length > 0) {
+          gcode += `; Path\n`
 
-          // Move to start position with pen up
-          const [startX, startY] = stroke[0]
+          // Move to start position
+          const startX = path.points[0][0] * (plotterSettings.paperWidth / canvasWidth)
+          const startY = path.points[0][1] * (plotterSettings.paperHeight / canvasHeight)
+
+          // Move to start position
           gcode += `G0 F${gcodeSettings.travelSpeed} X${startX.toFixed(2)} Y${startY.toFixed(2)} ; Move to start\n`
 
-          // Pen down
-          gcode += `${gcodeSettings.penDownCommand} ; Pen down\n`
+          // Pen down with correct pen command
+          const penDownCommand = path.pen === 1 ? gcodeSettings.pen1DownCommand : gcodeSettings.pen2DownCommand
+          gcode += `${penDownCommand} ; Pen ${path.pen} down\n`
 
           // Draw the path
           gcode += `G1 F${gcodeSettings.feedRate} ; Set drawing speed\n`
-          stroke.slice(1).forEach(([x, y]) => {
-            gcode += `G1 X${x.toFixed(2)} Y${y.toFixed(2)}\n`
+          path.points.forEach(([x, y]) => {
+            const plotterX = x * (plotterSettings.paperWidth / canvasWidth)
+            const plotterY = y * (plotterSettings.paperHeight / canvasHeight)
+            gcode += `G1 X${plotterX.toFixed(2)} Y${plotterY.toFixed(2)}\n`
           })
 
-          // Pen up
-          gcode += `${gcodeSettings.penUpCommand} ; Pen up\n\n`
+          // Pen up with correct pen command
+          const penUpCommand = path.pen === 1 ? gcodeSettings.pen1UpCommand : gcodeSettings.pen2UpCommand
+          gcode += `${penUpCommand} ; Pen ${path.pen} up\n\n`
         }
       })
 
@@ -562,9 +586,9 @@ M2 ; End program
     try {
       const canvas = canvasRef.current
       let svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">\n`
-      pathData.forEach((stroke) => {
-        if (stroke.length > 0) {
-          const points = stroke.map(([x, y]) => `${x},${y}`).join(" ")
+      pathData.forEach((path) => {
+        if (path.points && path.points.length > 0) {
+          const points = path.points.map(([x, y]) => `${x},${y}`).join(" ")
           svgContent += `<polyline points="${points}" stroke="#000000" fill="none" strokeWidth="${strokeWidth}" strokeLinecap="round" />\n`
         }
       })
@@ -834,6 +858,28 @@ M2 ; End program
               <span className="text-sm min-w-[30px] text-center">{strokeWidth}px</span>
             </div>
 
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium min-w-[50px]">
+                Pen:
+              </label>
+              <div className="flex gap-2">
+                <Button
+                  variant={activePen === 1 ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActivePen(1)}
+                >
+                  Pen 1
+                </Button>
+                <Button
+                  variant={activePen === 2 ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActivePen(2)}
+                >
+                  Pen 2
+                </Button>
+              </div>
+            </div>
+
             {tool === "triangle" && trianglePoints.length > 0 && (
               <div className="text-sm text-blue-600">
                 {trianglePoints.length === 1
@@ -905,13 +951,13 @@ M2 ; End program
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <label htmlFor="pen-down" className="text-sm min-w-[120px]">
-                      Pen Down Command:
+                    <label htmlFor="pen1-up" className="text-sm min-w-[120px]">
+                      Pen 1 Up Command:
                     </label>
                     <Input
-                      id="pen-down"
-                      value={gcodeSettings.penDownCommand}
-                      onChange={(e) => setGcodeSettings({ ...gcodeSettings, penDownCommand: e.target.value })}
+                      id="pen1-up"
+                      value={gcodeSettings.pen1UpCommand}
+                      onChange={(e) => setGcodeSettings({ ...gcodeSettings, pen1UpCommand: e.target.value })}
                       className="max-w-[100px]"
                     />
                     <TooltipProvider>
@@ -919,24 +965,24 @@ M2 ; End program
                         <TooltipTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
                             <Info className="h-4 w-4" />
-                            <span className="sr-only">Pen down command info</span>
+                            <span className="sr-only">Pen 1 up command info</span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p className="max-w-xs">G-code command to lower the pen (e.g., M3)</p>
+                          <p className="max-w-xs">G-code command to raise Pen 1 (e.g., M5)</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <label htmlFor="pen-up" className="text-sm min-w-[120px]">
-                      Pen Up Command:
+                    <label htmlFor="pen1-down" className="text-sm min-w-[120px]">
+                      Pen 1 Down Command:
                     </label>
                     <Input
-                      id="pen-up"
-                      value={gcodeSettings.penUpCommand}
-                      onChange={(e) => setGcodeSettings({ ...gcodeSettings, penUpCommand: e.target.value })}
+                      id="pen1-down"
+                      value={gcodeSettings.pen1DownCommand}
+                      onChange={(e) => setGcodeSettings({ ...gcodeSettings, pen1DownCommand: e.target.value })}
                       className="max-w-[100px]"
                     />
                     <TooltipProvider>
@@ -944,11 +990,61 @@ M2 ; End program
                         <TooltipTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
                             <Info className="h-4 w-4" />
-                            <span className="sr-only">Pen up command info</span>
+                            <span className="sr-only">Pen 1 down command info</span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p className="max-w-xs">G-code command to raise the pen (e.g., M5)</p>
+                          <p className="max-w-xs">G-code command to lower Pen 1 (e.g., M3)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="pen2-up" className="text-sm min-w-[120px]">
+                      Pen 2 Up Command:
+                    </label>
+                    <Input
+                      id="pen2-up"
+                      value={gcodeSettings.pen2UpCommand}
+                      onChange={(e) => setGcodeSettings({ ...gcodeSettings, pen2UpCommand: e.target.value })}
+                      className="max-w-[100px]"
+                    />
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
+                            <Info className="h-4 w-4" />
+                            <span className="sr-only">Pen 2 up command info</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="max-w-xs">G-code command to raise Pen 2 (e.g., M7)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="pen2-down" className="text-sm min-w-[120px]">
+                      Pen 2 Down Command:
+                    </label>
+                    <Input
+                      id="pen2-down"
+                      value={gcodeSettings.pen2DownCommand}
+                      onChange={(e) => setGcodeSettings({ ...gcodeSettings, pen2DownCommand: e.target.value })}
+                      className="max-w-[100px]"
+                    />
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
+                            <Info className="h-4 w-4" />
+                            <span className="sr-only">Pen 2 down command info</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="max-w-xs">G-code command to lower Pen 2 (e.g., M8)</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
