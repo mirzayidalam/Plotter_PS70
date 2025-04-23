@@ -37,6 +37,26 @@ long x_delta = 5000;
 long y_delta = 5000;
 long middle_init = MAX_X/2;
 
+class MyClass {
+  private:
+    // Private member variables
+    int privateVar;
+    
+  public:
+    // Constructor
+    MyClass();
+    
+    // Constructor with parameters
+    MyClass(int initialValue);
+    
+    // Public methods
+    void setVar(int value);
+    int getVar();
+    
+    // Other public methods
+    void doSomething();
+};
+
 void setup() {
   Serial.begin(9600);
   // Pen Btn
@@ -51,12 +71,12 @@ void setup() {
   servo.attach(pin, 500, 2400);
 
   // Set speed and acceleration for motor 1
-  stepper1.setMaxSpeed(6000);      // You can tweak this
-  stepper1.setAcceleration(3000);  // And this too
+  stepper1.setMaxSpeed(3000);      // You can tweak this
+  stepper1.setAcceleration(1500);  // And this too
 
   // Set speed and acceleration for motor 2
-  stepper2.setMaxSpeed(4000);
-  stepper2.setAcceleration(2000);
+  stepper2.setMaxSpeed(1000);
+  stepper2.setAcceleration(500);
 
   // Homing sequence
   pinMode(X_AXIS_LIMIT_SWITCH_PIN, INPUT_PULLUP);
