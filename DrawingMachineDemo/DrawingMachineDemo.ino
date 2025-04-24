@@ -138,31 +138,58 @@ void loop() {
       isSetUp = true;
     } else {
       // DO A FIGURE 8
-      int pen = digitalRead(penSwitch);
+      // int pen = digitalRead(penSwitch);
 
-      // Servo
-      if (pen == 1) {
-        servo.write(108);
-      } else {
-        servo.write(90);
-      }
+      // // Servo
+      // if (pen == 1) {
+      //   servo.write(108);
+      // } else {
+      //   servo.write(90);
+      // }
 
-      // Motor 1: reverse direction at end
-      if (stepper1.distanceToGo() == 0) {
-        // target1 = -target1;
-        x_delta = -x_delta;
-        stepper1.moveTo(middle_init + x_delta);
-      }
+      // // Motor 1: reverse direction at end
+      // if (stepper1.distanceToGo() == 0) {
+      //   // target1 = -target1;
+      //   x_delta = -x_delta;
+      //   stepper1.moveTo(middle_init + x_delta);
+      // }
 
-      // Motor 2: same logic
-      if (stepper2.distanceToGo() == 0) {
-        y_delta = -y_delta;
-        stepper2.moveTo(-middle_init + y_delta);
-      }
+      // // Motor 2: same logic
+      // if (stepper2.distanceToGo() == 0) {
+      //   y_delta = -y_delta;
+      //   stepper2.moveTo(-middle_init + y_delta);
+      // }
     
-      // Run both motors
-      stepper1.run();
-      stepper2.run();
+      // // Run both motors
+      // stepper1.run();
+      // stepper2.run();
+
+
+      // Do a circle!!
+      static float theta = 0.0;
+      static float radius = 5000; // You can tweak this
+      static float stepSize = 0.02; // Smaller = smoother circle
+
+      int pen = digitalRead(penSwitch);
+      if (pen == 1) {
+        servo.write(108); // Pen down
+      } else {
+        servo.write(90);  // Pen up
+      }
+
+      long x = middle_init + radius * cos(theta);
+      long y = -middle_init + radius * sin(theta);
+
+      stepper1.moveTo(x);
+      stepper2.moveTo(y);
+
+      stepper1.runToPosition();
+      stepper2.runToPosition();
+
+      theta += stepSize;
+      if (theta >= 2 * PI) {
+        theta = 0.0;
+      }
     }
   }
 }
